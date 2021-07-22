@@ -1,0 +1,8 @@
+trim_*
+raw-reads_*
+FimH_*
+*log
+Merging_per_patients.sh
+assembler.sh
+*txt
+
