@@ -1,0 +1,113 @@
+#!/bin/bash
+###############################################################
+###############################################################
+if [ "$1" == "-help" ]; then
+  echo "
+
+SShekarriz, Jan13 2019
+This is to assign taxonomic info to shotgun reads
+using KRAKEN2 algorithm and standard large kraken db
+this script generates all the outputs as well as
+abundance estimation using Bracken package
+at both genus and species level.
+
+HOT TO USE:
+standKRAKEN [input directory] [output's directory] [confidence score]
+
+*input directory: a directory contains the fasta files (suffix must be '_001_1P.fastq')
+*output direcory: full path to the result direcoty. will be created if not present
+*confidence score: a threshold score in the [0,1] interval; the classifier then 
+will adjust labels up the tree until the label's score (described below) meets or 
+exceeds that threshold.
+
+To give some guidance toward selecting an appropriate threshold, we show here the results of 
+different thresholds on the MiSeq metagenome from the Kraken paper (see the paper for more 
+details; note that the database used here is more recent than that used in the paper). 
+Precision, sensitivity, and F-score are measured at the genus rank:
+
+Thres	Prec	Sens	F-score
+0	95.43	77.32	85.43
+0.05	97.28	76.31	85.53
+0.10	98.25	75.13	85.15
+0.15	98.81	73.87	84.54
+0.20	99.13	72.82	83.96
+0.25	99.38	71.74	83.33
+0.30	99.55	70.75	82.71
+0.35	99.61	69.53	81.90
+0.40	99.66	68.35	81.09
+0.45	99.70	66.93	80.09
+0.50	99.71	65.49	79.06
+
+
+###################################################################
+Example command:
+
+./standKRAKEN Trimmed_directory /home/projct/result/ 0.05
+###################################################################
+
+ "
+  exit 0
+fi
+###################################################################
+###################################################################
+DB="/dataone/common/ref_dbs/KRAKEN2_dbs/standard_Jan1019"
+###################################################################
+
+indir=$1
+outdir=$2
+confi=$3
+
+###################################################################
+BRACKEN="/dataone/common/software/Bracken-master/src/est_abundance.py"
+KRAKEN-BIOM="/dataone/common/software/kraken-biom"
+###################################################################
+DATE=`date '+%Y-%m-%d-%H:%M'`
+exec > >(tee -i standKRAKEN_${DATE}.log)
+exec 2>&1
+####################################################################
+
+mkdir -p $outdir
+cd $indir
+for file in *_R1_paired.fq.gz
+do
+        sample=${file%_R1*}
+        R1=$file
+        R2=${file%_R1*}_R2_paired.fq.gz
+        echo "input dir: $indir"
+        echo "out dir: $outdir" 
+        echo "sample: $sample"
+        echo "paired-reads: $R1, $R2"
+	echo "Result : $outdir/${sample}.kraken${confi}-names"
+
+        kraken2 --db $DB --output $outdir/${sample}.kraken${confi}-names --confidence $confi \
+                --use-names --report $outdir/${sample}.kraken${confi}-report --paired $R1 $R2 --threads 10
+        kraken2 --db $DB --output $outdir/${sample}.kraken${confi} --confidence $confi --threads 10 \
+                --report $outdir/${sample}.kraken${confi}-MPAreport --use-mpa-style --paired $R1 $R2
+        $BRACKEN -i $outdir/${sample}.kraken${confi}-report -k $DB/*.kmer_distrib \
+                -l S -o $outdir/${sample}.Bracken${confi}-species
+        $BRACKEN -i $outdir/${sample}.kraken${confi}-report -k $DB/*.kmer_distrib \
+                -l G -o $outdir/${sample}.Bracken${confi}-genus
+
+done
+
+
+brackenOUT=$outdir/BRACKENout
+mkdir -p $brackenOUT
+mv $outdir/*racken* $brackenOUT/
+# combine all the kraken2 outputs
+$KRAKEN-BIOM $outdir/*kraken${confi}-report --fmt json -o $outdir/AllSamples_kraken-biom_${confi}.txt
+
+# combine all the bracken outputs
+bracken_combine=/dataone/common/software/Bracken-master/analysis_scripts/combine_bracken_outputs.py
+python2.7 $bracken_combine --files $brackenOUT/*-species -o $brackenOUT/AllSamples_bracken-species_${confi}.txt
+python2.7 $bracken_combine --files $brackenOUT/*-genus -o $brackenOUT/AllSamples_bracken-genus_${confi}.txt
+
+
+
+
+
+
+
+
+
+
